@@ -1668,6 +1668,20 @@ async function initAuth() {
   }
 }
 
+async function loadProfile(userId, fallbackUsername) {
+  let profile = null;
+  for (let i = 0; i < 3; i++) {
+    const { data } = await sb.from('profiles').select('username, is_premium').eq('id', userId).single();
+    if (data) { profile = data; break; }
+    await new Promise(r => setTimeout(r, 500));
+  }
+  if (!profile && fallbackUsername) {
+    await sb.from('profiles').upsert({ id: userId, username: fallbackUsername });
+    profile = { username: fallbackUsername, is_premium: false };
+  }
+  return profile;
+}
+
 // ============================================================
 //  CITY CONFIG  (12 French cities, sequential unlock)
 // ============================================================
@@ -1932,9 +1946,8 @@ async function handleAuth(mode) {
       if (!data?.user) throw new Error('ログインに失敗しました');
       currentUser = data.user;
     }
-    const { data: profile } = await sb.from('profiles').select('username, is_premium').eq('id', currentUser.id).single();
-    currentProfile = profile;
-    if (profile?.is_premium) gs.isPremium = true;
+    currentProfile = await loadProfile(currentUser.id, username.trim());
+    if (currentProfile?.is_premium) gs.isPremium = true;
     await loadProgressFromDB();
     show('map');
   } catch(e) {
