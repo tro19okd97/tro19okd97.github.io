@@ -2005,10 +2005,11 @@ function renderTop() {
           </div>
         </div>` : ''}
 
+        ${currentUser && currentProfile ? '' : `
         <button onclick="show('map')"
           class="w-full max-w-xs bg-white text-blue-900 font-extrabold text-lg py-4 rounded-full shadow-xl hover:bg-blue-50 active:scale-95 transition-all mb-3">
           🚀 START — No Registration!
-        </button>
+        </button>`}
         <button onclick="show('mapview')"
           class="w-full max-w-xs bg-blue-500/80 text-white font-extrabold py-3 rounded-full hover:bg-blue-400/80 active:scale-95 transition-all mb-3 border border-white/30">
           🗺️ View Adventure Map
@@ -2052,8 +2053,9 @@ function renderTop() {
                  </div>
                </div>
              </div>`
-          : `<button onclick="show('auth')" class="mt-6 text-blue-300 text-sm hover:text-white transition-colors">
-               🔑 ログイン / 登録してデータを同期
+          : `<button onclick="show('auth')"
+               class="w-full max-w-xs mt-5 bg-yellow-400 text-blue-900 font-extrabold text-lg py-4 rounded-full shadow-xl hover:bg-yellow-300 active:scale-95 transition-all">
+               🔑 新規登録 or ログインはこちら
              </button>`
         }
         <p class="mt-3 text-blue-500 text-xs">Progress auto-saved · Free forever</p>
