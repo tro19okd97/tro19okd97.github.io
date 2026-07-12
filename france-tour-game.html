@@ -1928,8 +1928,7 @@ async function handleAuth(mode) {
       if (!data?.user) throw new Error('登録は完了しましたが、ログインに失敗しました。ログイン画面から入り直してください。');
       currentUser = data.user;
     } else {
-      const { data, error } = await signIn(username, password);
-      if (error) throw error;
+      const data = await signIn(username, password);
       if (!data?.user) throw new Error('ログインに失敗しました');
       currentUser = data.user;
     }
