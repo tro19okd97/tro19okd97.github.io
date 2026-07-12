@@ -1509,6 +1509,7 @@ const WORD_DATA = [
 ].map(([id,level,city,question,answer,category])=>({id,level,city,question,answer,category}));
 
     </script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -1568,6 +1569,102 @@ const WORD_DATA = [
 <div id="app"></div>
 
 <script>
+// ============================================================
+//  SUPABASE
+// ============================================================
+const SUPABASE_URL = 'https://hoyyqxgznjvxaluyfwwm.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhveXlxeGd6bmp2eGFsdXlmd3dtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM2ODQ3MzksImV4cCI6MjA5OTI2MDczOX0.draHM_f_oqEgRTE-LD4Y78zJSGAHeqoidA_SS9SNspk';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let currentUser = null;   // Supabase auth user
+let currentProfile = null; // { username }
+
+// ── Auth helpers ──────────────────────────────────────────
+async function signUp(username, password) {
+  const email = username.toLowerCase().trim() + '@french-adventure.app';
+  const { data, error } = await sb.auth.signUp({
+    email, password,
+    options: { data: { username: username.trim() } }
+  });
+  if (error) throw error;
+  return data;
+}
+
+async function signIn(username, password) {
+  const email = username.toLowerCase().trim() + '@french-adventure.app';
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+  return data;
+}
+
+async function signOut() {
+  await sb.auth.signOut();
+  currentUser = null; currentProfile = null;
+  gs = loadState();
+  show('auth');
+}
+
+// ── Progress sync ─────────────────────────────────────────
+async function loadProgressFromDB() {
+  if (!currentUser) return;
+  const { data } = await sb.from('progress').select('*').eq('user_id', currentUser.id).single();
+  if (data) {
+    gs.totalPoints    = data.total_points   ?? 0;
+    gs.clearedCities  = data.cleared_cities ?? [];
+    gs.bestAccuracies = data.best_accuracies ?? {};
+    gs.masteredWords  = data.mastered_words  ?? {};
+    gs.quizHistory    = data.quiz_history    ?? [];
+    gs.totalQuizzes   = data.total_quizzes   ?? 0;
+    gs.daysActive     = data.days_active     ?? [];
+    saveState();
+  }
+}
+
+async function saveProgressToDB() {
+  if (!currentUser) return;
+  await sb.from('progress').upsert({
+    user_id:        currentUser.id,
+    total_points:   gs.totalPoints,
+    cleared_cities: gs.clearedCities,
+    best_accuracies:gs.bestAccuracies,
+    mastered_words: gs.masteredWords,
+    quiz_history:   gs.quizHistory,
+    total_quizzes:  gs.totalQuizzes,
+    days_active:    gs.daysActive,
+    updated_at:     new Date().toISOString(),
+  }, { onConflict: 'user_id' });
+}
+
+async function submitRankingToDB(nickname, accuracy, pts, city) {
+  if (!currentUser) return;
+  await sb.from('rankings').insert({
+    user_id:  currentUser.id,
+    nickname, points: gs.totalPoints,
+    accuracy, city: city.name, level: city.level,
+    mastered: totalMastered(),
+  });
+}
+
+async function loadRankingsFromDB() {
+  const { data } = await sb.from('rankings')
+    .select('*').order('points', { ascending: false }).limit(100);
+  return data || [];
+}
+
+// ── Boot: check session ───────────────────────────────────
+async function initAuth() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) {
+    currentUser = session.user;
+    const { data: profile } = await sb.from('profiles').select('username').eq('id', currentUser.id).single();
+    currentProfile = profile;
+    await loadProgressFromDB();
+    show('top');
+  } else {
+    show('auth');
+  }
+}
+
 // ============================================================
 //  CITY CONFIG  (12 French cities, sequential unlock)
 // ============================================================
@@ -1667,7 +1764,8 @@ function playSound(ok) {
 // ============================================================
 const app = document.getElementById('app');
 function show(name, arg) {
-  if      (name==='top')       renderTop();
+  if      (name==='auth')      renderAuth();
+  else if (name==='top')       renderTop();
   else if (name==='map')       renderMap();
   else if (name==='mapview')   renderMapView();
   else if (name==='quiz')      startQuiz(arg);
@@ -1675,6 +1773,141 @@ function show(name, arg) {
   else if (name==='result')    renderResult();
   else if (name==='ranking')   renderRanking();
   else if (name==='dashboard') renderDashboard();
+}
+
+// ============================================================
+//  AUTH SCREEN
+// ============================================================
+function renderAuth(mode = 'login') {
+  app.innerHTML = `
+    <div class="min-h-screen flex items-center justify-center px-4 py-10"
+         style="background:linear-gradient(160deg,#001a5c 0%,#002395 50%,#001a5c 100%)">
+      <div class="w-full max-w-sm">
+        <!-- Logo -->
+        <div class="text-center mb-8">
+          <div class="flex justify-center mb-3">
+            <svg viewBox="0 0 60 90" width="48" height="72" fill="white" opacity="0.9">
+              <rect x="27" y="0" width="6" height="18" rx="2"/>
+              <rect x="20" y="16" width="20" height="5" rx="2"/>
+              <polygon points="16,21 44,21 40,42 20,42"/>
+              <rect x="14" y="40" width="32" height="6" rx="2"/>
+              <polygon points="10,46 50,46 46,68 14,68"/>
+              <rect x="8" y="66" width="44" height="6" rx="2"/>
+              <rect x="8" y="72" width="14" height="18" rx="2"/>
+              <rect x="38" y="72" width="14" height="18" rx="2"/>
+            </svg>
+          </div>
+          <h1 class="text-2xl font-black text-white">French Word Adventure</h1>
+          <p class="text-blue-300 text-sm mt-1">進行データをどこでも同期</p>
+        </div>
+
+        <!-- Card -->
+        <div class="bg-white rounded-2xl shadow-2xl p-6">
+          <!-- Tabs -->
+          <div class="flex bg-gray-100 rounded-xl p-1 mb-5">
+            <button id="tab-login" onclick="renderAuth('login')"
+              class="flex-1 py-2 rounded-lg font-bold text-sm transition-all ${mode==='login'?'bg-white shadow text-blue-700':'text-gray-500'}">
+              ログイン
+            </button>
+            <button id="tab-signup" onclick="renderAuth('signup')"
+              class="flex-1 py-2 rounded-lg font-bold text-sm transition-all ${mode==='signup'?'bg-white shadow text-blue-700':'text-gray-500'}">
+              新規登録
+            </button>
+          </div>
+
+          <!-- Form -->
+          <div id="auth-error" class="hidden bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 mb-4"></div>
+
+          <div class="space-y-3">
+            <div>
+              <label class="text-xs font-bold text-gray-600 block mb-1">ユーザーネーム</label>
+              <input id="auth-username" type="text" placeholder="例：frenchlearner123"
+                class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                autocomplete="username" autocapitalize="none"/>
+            </div>
+            <div>
+              <label class="text-xs font-bold text-gray-600 block mb-1">パスワード</label>
+              <input id="auth-password" type="password" placeholder="6文字以上"
+                class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                autocomplete="${mode==='login'?'current-password':'new-password'}"/>
+            </div>
+            ${mode==='signup'?`
+            <div>
+              <label class="text-xs font-bold text-gray-600 block mb-1">パスワード確認</label>
+              <input id="auth-password2" type="password" placeholder="もう一度入力"
+                class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                autocomplete="new-password"/>
+            </div>`:''}
+          </div>
+
+          <button onclick="handleAuth('${mode}')"
+            class="w-full mt-5 bg-blue-600 text-white font-black py-3.5 rounded-xl hover:bg-blue-700 active:scale-95 transition-all">
+            ${mode==='login'?'ログイン →':'アカウント作成 →'}
+          </button>
+
+          ${mode==='login'?`<p class="text-center text-xs text-gray-400 mt-4">アカウントがない？<button onclick="renderAuth('signup')" class="text-blue-600 font-bold hover:underline">新規登録</button></p>`
+          :`<p class="text-center text-xs text-gray-400 mt-4">すでにアカウントがある？<button onclick="renderAuth('login')" class="text-blue-600 font-bold hover:underline">ログイン</button></p>`}
+        </div>
+
+        <p class="text-center text-blue-500 text-xs mt-6">登録不要でゲストプレイも可能</p>
+        <button onclick="show('top')" class="w-full mt-2 text-blue-300 text-sm hover:text-white transition-colors">
+          ゲストとしてプレイ →
+        </button>
+      </div>
+    </div>`;
+
+  // Enterキーで送信
+  setTimeout(() => {
+    document.getElementById('auth-password')?.addEventListener('keydown', e => {
+      if (e.key === 'Enter') handleAuth(mode);
+    });
+  }, 50);
+}
+
+async function handleAuth(mode) {
+  const username = document.getElementById('auth-username')?.value.trim();
+  const password = document.getElementById('auth-password')?.value;
+  const errEl    = document.getElementById('auth-error');
+
+  const showErr = (msg) => { errEl.textContent = msg; errEl.classList.remove('hidden'); };
+  errEl.classList.add('hidden');
+
+  if (!username || username.length < 3) return showErr('ユーザーネームは3文字以上で入力してください');
+  if (!password || password.length < 6) return showErr('パスワードは6文字以上で入力してください');
+
+  if (mode === 'signup') {
+    const pw2 = document.getElementById('auth-password2')?.value;
+    if (password !== pw2) return showErr('パスワードが一致しません');
+  }
+
+  // ボタンをローディング状態に
+  const btn = app.querySelector('button[onclick*="handleAuth"]');
+  if (btn) { btn.textContent = '処理中...'; btn.disabled = true; }
+
+  try {
+    if (mode === 'signup') {
+      await signUp(username, password);
+      // 登録後すぐログイン
+      const { data } = await sb.auth.signInWithPassword({
+        email: username.toLowerCase() + '@french-adventure.app', password
+      });
+      currentUser = data.user;
+    } else {
+      const { data } = await signIn(username, password);
+      currentUser = data.user;
+    }
+    const { data: profile } = await sb.from('profiles').select('username').eq('id', currentUser.id).single();
+    currentProfile = profile;
+    await loadProgressFromDB();
+    show('top');
+  } catch(e) {
+    let msg = e.message || 'エラーが発生しました';
+    if (msg.includes('Invalid login')) msg = 'ユーザーネームまたはパスワードが間違っています';
+    if (msg.includes('already registered')) msg = 'このユーザーネームはすでに使われています';
+    if (msg.includes('Password should')) msg = 'パスワードは6文字以上にしてください';
+    showErr(msg);
+    if (btn) { btn.textContent = mode==='login'?'ログイン →':'アカウント作成 →'; btn.disabled = false; }
+  }
 }
 
 // ============================================================
@@ -1740,7 +1973,17 @@ function renderTop() {
           </button>
         </div>
 
-        <p class="mt-8 text-blue-500 text-xs">No registration · Progress auto-saved · Free forever</p>
+        <!-- ログイン状態 -->
+        ${currentUser && currentProfile
+          ? `<div class="flex items-center justify-center gap-3 mt-6">
+               <span class="text-blue-300 text-sm">👤 ${currentProfile.username}</span>
+               <button onclick="signOut()" class="text-blue-400 text-xs border border-blue-400/40 px-3 py-1 rounded-full hover:bg-white/10 transition-all">ログアウト</button>
+             </div>`
+          : `<button onclick="show('auth')" class="mt-6 text-blue-300 text-sm hover:text-white transition-colors">
+               🔑 ログイン / 登録してデータを同期
+             </button>`
+        }
+        <p class="mt-3 text-blue-500 text-xs">Progress auto-saved · Free forever</p>
       </div>
     </div>`;
 }
@@ -1858,6 +2101,7 @@ function finishQuiz() {
   gs.quizHistory.unshift({ cityId:qs.cityId, accuracy, pts, date:new Date().toLocaleDateString('en-US') });
   if (gs.quizHistory.length > 50) gs.quizHistory = gs.quizHistory.slice(0,50);
   saveState();
+  saveProgressToDB(); // Supabaseに非同期保存
   renderResult();
 }
 
@@ -1977,37 +2221,64 @@ function renderResult() {
     </div>`;
 }
 
-function submitScore() {
+async function submitScore() {
   const nick = document.getElementById('nick').value.trim();
   if (!nick) { alert('Please enter a nickname!'); return; }
   const {words,correct,city} = qs;
   const accuracy = Math.round(correct/words.length*100);
-  if (!gs.rankings) gs.rankings=[];
-  gs.rankings = [{
-    nickname:nick, points:gs.totalPoints, accuracy,
-    city:city.name, level:city.level,
-    mastered:totalMastered(),
-    date:new Date().toLocaleDateString('en-US')
-  }, ...gs.rankings].slice(0,100);
-  saveState();
-  document.getElementById('rankForm').innerHTML=`<p class="text-center text-green-300 font-black">✓ Submitted! Thanks, ${nick}! 🎉</p>`;
+  const btn = document.querySelector('#rankForm button');
+  if (btn) { btn.textContent = '送信中...'; btn.disabled = true; }
+  try {
+    if (currentUser) {
+      await submitRankingToDB(nick, accuracy, gs.totalPoints, city);
+    } else {
+      // ゲストはlocalStorageのみ
+      if (!gs.rankings) gs.rankings=[];
+      gs.rankings = [{
+        nickname:nick, points:gs.totalPoints, accuracy,
+        city:city.name, level:city.level, mastered:totalMastered(),
+        date:new Date().toLocaleDateString('en-US')
+      }, ...gs.rankings].slice(0,100);
+      saveState();
+    }
+    document.getElementById('rankForm').innerHTML=`<p class="text-center text-green-300 font-black">✓ 登録完了！ ${nick} さん、お疲れ様！ 🎉</p>`;
+  } catch(e) {
+    document.getElementById('rankForm').innerHTML=`<p class="text-center text-red-300 font-black">エラー: ${e.message}</p>`;
+  }
 }
 
 // ============================================================
 //  RANKING SCREEN
 // ============================================================
-function renderRanking() {
-  const sorted = [...(gs.rankings||[])].sort((a,b)=>b.points-a.points);
+async function renderRanking() {
+  // ローディング表示
+  app.innerHTML = `
+    <div class="min-h-screen bg-gray-100">
+      <div class="sticky top-0 bg-gradient-to-r from-blue-900 to-blue-700 text-white px-4 py-3 flex items-center shadow">
+        <button onclick="show('map')" class="text-blue-300 hover:text-white mr-3 text-sm">← Map</button>
+        <h2 class="font-black text-lg">🏆 Global Rankings</h2>
+      </div>
+      <div class="flex justify-center items-center py-20 text-gray-400">読み込み中...</div>
+    </div>`;
+
   const medals = ['🥇','🥈','🥉'];
-  const rows = sorted.length===0
-    ? `<tr><td colspan="5" class="text-center py-10 text-gray-400">No scores yet — be the first! 🌟</td></tr>`
-    : sorted.map((r,i)=>`
+  let rankings = [];
+
+  try {
+    rankings = await loadRankingsFromDB();
+  } catch(_) {
+    rankings = [...(gs.rankings||[])].sort((a,b)=>b.points-a.points);
+  }
+
+  const rows = rankings.length===0
+    ? `<tr><td colspan="5" class="text-center py-10 text-gray-400">まだスコアなし — 最初のプレイヤーになろう！ 🌟</td></tr>`
+    : rankings.map((r,i)=>`
       <tr class="${i%2===0?'bg-white':'bg-gray-50'} hover:bg-blue-50 transition-colors">
         <td class="px-3 py-3 text-center font-black ${i<3?'text-xl':''} ${i===0?'text-yellow-500':i===1?'text-gray-400':i===2?'text-orange-400':'text-gray-500'}">${i<3?medals[i]:i+1}</td>
         <td class="px-3 py-3 font-semibold text-gray-800">${r.nickname}</td>
         <td class="px-3 py-3 text-center font-black text-blue-600">${r.points}</td>
         <td class="px-3 py-3 text-center">${r.accuracy}%</td>
-        <td class="px-3 py-3 text-center text-xs text-gray-500">${r.city}<br><span class="text-gray-400">${r.date}</span></td>
+        <td class="px-3 py-3 text-center text-xs text-gray-500">${r.city || '-'}<br><span class="text-gray-400">${r.created_at ? new Date(r.created_at).toLocaleDateString('ja-JP') : (r.date||'')}</span></td>
       </tr>`).join('');
 
   app.innerHTML = `
@@ -2015,8 +2286,13 @@ function renderRanking() {
       <div class="sticky top-0 bg-gradient-to-r from-blue-900 to-blue-700 text-white px-4 py-3 flex items-center shadow">
         <button onclick="show('map')" class="text-blue-300 hover:text-white mr-3 text-sm">← Map</button>
         <h2 class="font-black text-lg">🏆 Global Rankings</h2>
+        ${currentUser?`<span class="ml-auto text-blue-300 text-xs">👤 ${currentProfile?.username||''}</span>`:''}
       </div>
       <div class="max-w-lg mx-auto p-4">
+        ${!currentUser?`<div class="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 text-center text-sm">
+          <span class="text-blue-700">🌍 グローバルランキングに参加するには</span>
+          <button onclick="show('auth')" class="ml-2 text-blue-600 font-black hover:underline">ログイン / 登録</button>
+        </div>`:''}
         <div class="bg-white rounded-2xl shadow-sm overflow-hidden mb-4">
           <table class="w-full text-sm">
             <thead class="bg-blue-900 text-white">
@@ -2328,7 +2604,7 @@ function renderMapView() {
 // ============================================================
 //  BOOT
 // ============================================================
-show('top');
+initAuth();
 </script>
 </body>
 </html>
