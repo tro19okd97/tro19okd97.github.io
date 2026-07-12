@@ -1854,13 +1854,13 @@ function renderAuth(mode = 'login') {
           <div class="space-y-3">
             <div>
               <label class="text-xs font-bold text-gray-600 block mb-1">ユーザーネーム</label>
-              <input id="auth-username" type="text" placeholder="例：frenchlearner123"
+              <input id="auth-username" type="text" placeholder="3文字以上・英数字（例：takumi123）"
                 class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 autocomplete="username" autocapitalize="none"/>
             </div>
             <div>
               <label class="text-xs font-bold text-gray-600 block mb-1">パスワード</label>
-              <input id="auth-password" type="password" placeholder="6文字以上"
+              <input id="auth-password" type="password" placeholder="6文字以上（英数字）"
                 class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 autocomplete="${mode==='login'?'current-password':'new-password'}"/>
             </div>
