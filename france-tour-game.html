@@ -1921,12 +1921,16 @@ async function handleAuth(mode) {
     if (mode === 'signup') {
       await signUp(username, password);
       // 登録後すぐログイン
-      const { data } = await sb.auth.signInWithPassword({
+      const { data, error } = await sb.auth.signInWithPassword({
         email: username.toLowerCase() + '@french-adventure.app', password
       });
+      if (error) throw error;
+      if (!data?.user) throw new Error('登録は完了しましたが、ログインに失敗しました。ログイン画面から入り直してください。');
       currentUser = data.user;
     } else {
-      const { data } = await signIn(username, password);
+      const { data, error } = await signIn(username, password);
+      if (error) throw error;
+      if (!data?.user) throw new Error('ログインに失敗しました');
       currentUser = data.user;
     }
     const { data: profile } = await sb.from('profiles').select('username, is_premium').eq('id', currentUser.id).single();
@@ -1936,9 +1940,10 @@ async function handleAuth(mode) {
     show('top');
   } catch(e) {
     let msg = e.message || 'エラーが発生しました';
-    if (msg.includes('Invalid login')) msg = 'ユーザーネームまたはパスワードが間違っています';
+    if (msg.includes('Invalid login') || msg.includes('invalid_credentials')) msg = 'ユーザーネームまたはパスワードが間違っています';
     if (msg.includes('already registered')) msg = 'このユーザーネームはすでに使われています';
     if (msg.includes('Password should')) msg = 'パスワードは6文字以上にしてください';
+    if (msg.includes('Email signups are disabled')) msg = 'サインアップが無効になっています（Supabase設定を確認）';
     showErr(msg);
     if (btn) { btn.textContent = mode==='login'?'ログイン →':'アカウント作成 →'; btn.disabled = false; }
   }
@@ -2009,9 +2014,31 @@ function renderTop() {
 
         <!-- ログイン状態 -->
         ${currentUser && currentProfile
-          ? `<div class="flex items-center justify-center gap-3 mt-6">
-               <span class="text-blue-300 text-sm">👤 ${currentProfile.username}</span>
-               <button onclick="signOut()" class="text-blue-400 text-xs border border-blue-400/40 px-3 py-1 rounded-full hover:bg-white/10 transition-all">ログアウト</button>
+          ? `<div class="bg-white/10 rounded-2xl p-4 mt-5 text-left">
+               <div class="flex items-center justify-between mb-3">
+                 <div class="flex items-center gap-2">
+                   <span class="text-2xl">👤</span>
+                   <div>
+                     <p class="text-white font-black text-sm">${currentProfile.username}</p>
+                     <p class="text-blue-300 text-xs">${currentProfile.is_premium || gs.isPremium ? '💎 プレミアム会員' : '🆓 無料プラン'}</p>
+                   </div>
+                 </div>
+                 <button onclick="signOut()" class="text-blue-400 text-xs border border-blue-400/40 px-3 py-1 rounded-full hover:bg-white/10 transition-all">ログアウト</button>
+               </div>
+               <div class="grid grid-cols-3 gap-2 text-center">
+                 <div class="bg-white/10 rounded-xl py-2">
+                   <div class="text-yellow-300 font-black">${gs.totalPoints}</div>
+                   <div class="text-blue-300 text-xs">ポイント</div>
+                 </div>
+                 <div class="bg-white/10 rounded-xl py-2">
+                   <div class="text-white font-black">${gs.clearedCities.length}/12</div>
+                   <div class="text-blue-300 text-xs">都市クリア</div>
+                 </div>
+                 <div class="bg-white/10 rounded-xl py-2">
+                   <div class="text-green-300 font-black">${totalMastered()}</div>
+                   <div class="text-blue-300 text-xs">習得単語</div>
+                 </div>
+               </div>
              </div>`
           : `<button onclick="show('auth')" class="mt-6 text-blue-300 text-sm hover:text-white transition-colors">
                🔑 ログイン / 登録してデータを同期
