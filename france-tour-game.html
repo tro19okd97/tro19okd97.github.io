@@ -1948,7 +1948,25 @@ async function handleAuth(mode) {
     }
     currentProfile = await loadProfile(currentUser.id, username.trim());
     if (currentProfile?.is_premium) gs.isPremium = true;
-    await loadProgressFromDB();
+
+    // ローカルに進捗データがあれば引き継ぎ確認
+    const localGs = loadState();
+    const hasLocalProgress = localGs.totalPoints > 0 || localGs.clearedCities.length > 0 || Object.keys(localGs.masteredWords||{}).length > 0;
+    if (hasLocalProgress) {
+      await loadProgressFromDB();
+      // マージ（ローカルとDBの両方を合わせる）
+      gs.totalPoints    = Math.max(gs.totalPoints, localGs.totalPoints);
+      gs.clearedCities  = [...new Set([...gs.clearedCities, ...localGs.clearedCities])];
+      gs.masteredWords  = { ...localGs.masteredWords, ...gs.masteredWords };
+      gs.quizHistory    = [...(gs.quizHistory||[]), ...(localGs.quizHistory||[])].slice(-100);
+      for (const [k,v] of Object.entries(localGs.bestAccuracies||{})) {
+        gs.bestAccuracies[k] = Math.max(gs.bestAccuracies[k]||0, v);
+      }
+      saveState();
+      await saveProgressToDB();
+    } else {
+      await loadProgressFromDB();
+    }
     show('map');
   } catch(e) {
     let msg = e.message || 'エラーが発生しました';
