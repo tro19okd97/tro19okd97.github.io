@@ -1577,7 +1577,9 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let currentUser = null;   // Supabase auth user
-let currentProfile = null; // { username }
+let currentProfile = null; // { username, is_premium }
+const COUPON_CODE = 'XK9F2M';
+const FREE_CITIES = 3; // first N cities are free
 
 // ── Auth helpers ──────────────────────────────────────────
 async function signUp(username, password) {
@@ -1656,8 +1658,9 @@ async function initAuth() {
   const { data: { session } } = await sb.auth.getSession();
   if (session) {
     currentUser = session.user;
-    const { data: profile } = await sb.from('profiles').select('username').eq('id', currentUser.id).single();
+    const { data: profile } = await sb.from('profiles').select('username, is_premium').eq('id', currentUser.id).single();
     currentProfile = profile;
+    if (profile?.is_premium) gs.isPremium = true;
     await loadProgressFromDB();
     show('top');
   } else {
@@ -1698,6 +1701,7 @@ function loadState() {
     rankings:[],
     daysActive:[],      // array of date strings
     totalQuizzes:0,
+    isPremium:false,
   };
 }
 function saveState() {
@@ -1722,8 +1726,37 @@ function wordsForCity(cityName) {
 }
 
 function isCityUnlocked(cityId) {
-  const c = CITIES.find(x => x.id === cityId);
+  const idx = CITIES.findIndex(x => x.id === cityId);
+  if (idx >= FREE_CITIES && !gs.isPremium) return false;
+  const c = CITIES[idx];
   return !c.unlockAfter || gs.clearedCities.includes(c.unlockAfter);
+}
+
+function isPremiumLocked(cityId) {
+  const idx = CITIES.findIndex(x => x.id === cityId);
+  return idx >= FREE_CITIES && !gs.isPremium;
+}
+
+async function applyCoupon() {
+  const input = document.getElementById('coupon-input');
+  const msg   = document.getElementById('coupon-msg');
+  if (!input || !msg) return;
+  const code = input.value.trim().toUpperCase();
+  if (code !== COUPON_CODE) {
+    msg.textContent = '❌ コードが違います';
+    msg.className = 'text-red-500 text-xs mt-1';
+    return;
+  }
+  gs.isPremium = true;
+  saveState();
+  // DBにも保存（ログイン中のみ）
+  if (currentUser) {
+    await sb.from('profiles').update({ is_premium: true }).eq('id', currentUser.id);
+    if (currentProfile) currentProfile.is_premium = true;
+  }
+  msg.textContent = '✅ アンロック完了！全都市が解放されました';
+  msg.className = 'text-green-600 text-xs mt-1 font-bold';
+  setTimeout(() => show('map'), 1500);
 }
 
 function shuffle(arr) {
@@ -1896,8 +1929,9 @@ async function handleAuth(mode) {
       const { data } = await signIn(username, password);
       currentUser = data.user;
     }
-    const { data: profile } = await sb.from('profiles').select('username').eq('id', currentUser.id).single();
+    const { data: profile } = await sb.from('profiles').select('username, is_premium').eq('id', currentUser.id).single();
     currentProfile = profile;
+    if (profile?.is_premium) gs.isPremium = true;
     await loadProgressFromDB();
     show('top');
   } catch(e) {
@@ -1994,7 +2028,8 @@ function renderTop() {
 function renderMap() {
   const levelColors = {A1:'bg-blue-100 text-blue-800', A2:'bg-cyan-100 text-cyan-800', B1:'bg-rose-100 text-rose-800', B2:'bg-purple-100 text-purple-800'};
   const cards = CITIES.map(city => {
-    const unlocked = isCityUnlocked(city.id);
+    const premLocked = isPremiumLocked(city.id);
+    const unlocked = !premLocked && isCityUnlocked(city.id);
     const cleared  = gs.clearedCities.includes(city.id);
     const best     = gs.bestAccuracies[city.id];
     const cityWords = wordsForCity(city.name);
@@ -2004,12 +2039,13 @@ function renderMap() {
     return `
     <div class="city-card ${unlocked?'unlocked cursor-pointer':'cursor-not-allowed opacity-55'}
                 bg-gradient-to-br ${city.grad} rounded-2xl p-5 text-white shadow-md"
-         ${unlocked?`onclick="show('quiz','${city.id}')"`:''}>
+         ${unlocked?`onclick="show('quiz','${city.id}')"`:premLocked?`onclick="showCouponDialog()"`:''}>
       <div class="flex justify-between items-start mb-2">
         <span class="text-4xl leading-none">${city.emoji}</span>
         <div class="text-right flex flex-col items-end gap-1">
           ${cleared?`<span class="bg-yellow-400 text-yellow-900 text-xs font-black px-2 py-0.5 rounded-full">✓ CLEARED</span>`:''}
-          ${!unlocked?`<span class="text-xl">🔒</span>`:''}
+          ${premLocked?`<span class="bg-yellow-300 text-yellow-900 text-xs font-black px-2 py-0.5 rounded-full">💎 プレミアム</span>`:''}
+          ${!unlocked&&!premLocked?`<span class="text-xl">🔒</span>`:''}
           <span class="text-xs bg-white/20 px-2 py-0.5 rounded-full">${city.region}</span>
         </div>
       </div>
@@ -2024,7 +2060,8 @@ function renderMap() {
         <div class="stat-bar-fill bg-white/60" style="width:${Math.round(masteredInCity/cityWords.length*100)}%"></div>
       </div>
       <p class="text-xs text-white/60 mt-1">${masteredInCity}/${cityWords.length} mastered</p>`:''}
-      ${!unlocked&&prev?`<p class="text-xs mt-2 text-white/60">🔒 Clear ${prev.name} (${prev.level}) first</p>`:''}
+      ${premLocked?`<p class="text-xs mt-2 text-white/80">🔑 コードを持っている場合はタップして入力</p>`:''}
+      ${!unlocked&&!premLocked&&prev?`<p class="text-xs mt-2 text-white/60">🔒 Clear ${prev.name} (${prev.level}) first</p>`:''}
     </div>`;
   }).join('');
 
@@ -2047,9 +2084,37 @@ function renderMap() {
       </div>
       <div class="max-w-lg mx-auto p-4 space-y-3">
         <p class="text-center text-gray-500 text-sm">Tap a city · Need 80%+ accuracy to unlock next</p>
+        ${!gs.isPremium?`
+        <div class="bg-gradient-to-r from-yellow-400 to-amber-500 rounded-2xl p-4 text-center shadow">
+          <p class="font-black text-white text-sm mb-1">💎 4都市目以降はプレミアムのみ</p>
+          <p class="text-yellow-900 text-xs mb-3">招待コードをお持ちの方は下のボタンから入力できます</p>
+          <button onclick="showCouponDialog()" class="bg-white text-amber-600 font-black text-sm px-5 py-2 rounded-xl hover:bg-yellow-50 transition-all">🔑 コードを入力する</button>
+        </div>`:''}
         ${cards}
       </div>
+    </div>
+    <!-- Coupon modal -->
+    <div id="coupon-modal" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center px-4">
+      <div class="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+        <h3 class="font-black text-gray-800 text-lg mb-1">🔑 招待コードを入力</h3>
+        <p class="text-gray-500 text-xs mb-4">コードを持っていれば全都市が無料で解放されます</p>
+        <input id="coupon-input" type="text" placeholder="例：XXXXXX"
+          class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm font-mono uppercase focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 mb-1"
+          oninput="this.value=this.value.toUpperCase()"/>
+        <div id="coupon-msg" class="text-xs mt-1 h-4"></div>
+        <button onclick="applyCoupon()" class="w-full mt-4 bg-blue-600 text-white font-black py-3 rounded-xl hover:bg-blue-700 transition-all">確認する</button>
+        <button onclick="document.getElementById('coupon-modal').classList.add('hidden')" class="w-full mt-2 text-gray-400 text-sm hover:text-gray-600">キャンセル</button>
+      </div>
     </div>`;
+}
+
+function showCouponDialog() {
+  const modal = document.getElementById('coupon-modal');
+  if (modal) {
+    document.getElementById('coupon-msg').textContent = '';
+    document.getElementById('coupon-input').value = '';
+    modal.classList.remove('hidden');
+  }
 }
 
 // ============================================================
