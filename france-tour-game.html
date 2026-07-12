@@ -1662,7 +1662,7 @@ async function initAuth() {
     currentProfile = profile;
     if (profile?.is_premium) gs.isPremium = true;
     await loadProgressFromDB();
-    show('top');
+    show('map');
   } else {
     show('auth');
   }
@@ -1936,7 +1936,7 @@ async function handleAuth(mode) {
     currentProfile = profile;
     if (profile?.is_premium) gs.isPremium = true;
     await loadProgressFromDB();
-    show('top');
+    show('map');
   } catch(e) {
     let msg = e.message || 'エラーが発生しました';
     if (msg.includes('Invalid login') || msg.includes('invalid_credentials')) msg = 'ユーザーネームまたはパスワードが間違っています';
@@ -2097,7 +2097,10 @@ function renderMap() {
         <div class="max-w-lg mx-auto flex items-center justify-between">
           <button onclick="show('top')" class="text-blue-300 hover:text-white text-sm">← Home</button>
           <span class="font-black text-lg">🗺️ France — 12 Cities</span>
-          <span class="text-yellow-300 font-bold text-sm">${gs.totalPoints} pts</span>
+          <div class="text-right">
+            ${currentProfile ? `<div class="text-blue-300 text-xs">${currentProfile.username}</div>` : ''}
+            <span class="text-yellow-300 font-bold text-sm">${gs.totalPoints} pts</span>
+          </div>
         </div>
       </div>
       <!-- Tabs -->
