@@ -1967,7 +1967,7 @@ async function handleAuth(mode) {
     } else {
       await loadProgressFromDB();
     }
-    show('map');
+    show('top');
   } catch(e) {
     let msg = e.message || 'エラーが発生しました';
     if (msg.includes('Invalid login') || msg.includes('invalid_credentials')) msg = 'ユーザーネームまたはパスワードが間違っています';
